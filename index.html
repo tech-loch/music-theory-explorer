@@ -330,11 +330,21 @@ var SFWIND=['flute','oboe','clarinet','soprano_sax','alto_sax','tenor_sax','bari
 var SFHOSTS=['https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/','https://raw.githubusercontent.com/gleitz/midi-js-soundfonts/gh-pages/FluidR3_GM/'];
 var SFV={},SFST={},SFON=true,SFCOMP=null;
 try{SFON=localStorage.getItem('mte_sf')!=='off';}catch(e){}
+function audioUnlock(){
+  try{var a=ac();if(a.state!=='running')a.resume();var b=a.createBuffer(1,1,22050),s=a.createBufferSource();s.buffer=b;s.connect(a.destination);s.start(0);}catch(e){}
+}
+['touchend','click','keydown'].forEach(function(ev){document.addEventListener(ev,audioUnlock,true);});
 function sfName(){return INST.kind==='wind'?SFWIND[X.wi]:SFMAP[INST.id];}
 function sfSet(){
   var e=$('sfst');if(!e)return;var n=sfName(),st=SFST[n];
   var m=!SFON?'Sound: synth (tap to use real samples)':st==='ready'?'Sound: real samples (tap for synth)':st==='loading'?'Loading real sounds...':st==='fail'?'Sound: synth (samples unavailable, tap to retry)':'Sound: real samples (tap for synth)';
   e.textContent=m;
+}
+function sfMono(a,buf){
+  var n=buf.numberOfChannels;if(n===1)return buf;
+  var m=a.createBuffer(1,buf.length,buf.sampleRate),d=m.getChannelData(0),c,i,x;
+  for(c=0;c<n;c++){x=buf.getChannelData(c);for(i=0;i<d.length;i++)d[i]+=x[i]/n;}
+  return m;
 }
 function sfDecode(a,ab){return new Promise(function(res,rej){var p=a.decodeAudioData(ab,res,rej);if(p&&p.catch)p.catch(rej);});}
 function sfFetch(name){
@@ -362,10 +372,12 @@ function sfLoad(name){
     if(!items.length)throw new Error('empty');
     var out={},i=0;
     function next(){
-      if(i>=items.length){SFV[name]=out;SFST[name]='ready';sfSet();return;}
+      if(i>=items.length){
+        var cur=sfName();for(var kk in SFV){if(kk!==name&&kk!==cur){delete SFV[kk];SFST[kk]=null;}}
+        SFV[name]=out;SFST[name]='ready';sfSet();return;}
       var it=items[i++],bin=atob(it.b64),u=new Uint8Array(bin.length),k;
       for(k=0;k<bin.length;k++)u[k]=bin.charCodeAt(k);
-      return sfDecode(a,u.buffer).then(function(buf){out[it.midi]=buf;}).catch(function(){}).then(next);
+      return sfDecode(a,u.buffer).then(function(buf){out[it.midi]=sfMono(a,buf);}).catch(function(){}).then(next);
     }
     return next();
   }).catch(function(){SFST[name]='fail';sfSet();});
