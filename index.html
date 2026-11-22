@@ -270,7 +270,7 @@ var V4=[['root','Root position'],['inv1','1st inversion'],['inv2','2nd inversion
 
 var AC=null,BUFS={},CUR=[];
 function ac(){
-  if(!AC){var C=window.AudioContext||window.webkitAudioContext;AC=new C();}
+  if(!AC){var C=window.AudioContext||window.webkitAudioContext;AC=new C();AC.onstatechange=function(){if(window.sfSet)sfSet();};}
   try{if(navigator.audioSession)navigator.audioSession.type='playback';}catch(e){}
   if(AC.state!=='running'){try{AC.resume();}catch(e){}}
   return AC;
@@ -338,7 +338,7 @@ function sfName(){return INST.kind==='wind'?SFWIND[X.wi]:SFMAP[INST.id];}
 function sfSet(){
   var e=$('sfst');if(!e)return;var n=sfName(),st=SFST[n];
   var m=!SFON?'Sound: synth (tap to use real samples)':st==='ready'?'Sound: real samples (tap for synth)':st==='loading'?'Loading real sounds...':st==='fail'?'Sound: synth (samples unavailable, tap to retry)':'Sound: real samples (tap for synth)';
-  e.textContent=m;
+  e.textContent=m+(AC?' | audio: '+AC.state:'');
 }
 function sfMono(a,buf){
   var n=buf.numberOfChannels;if(n===1)return buf;
@@ -405,6 +405,7 @@ function sched(midi,t,dur){
   var k=INST.kind;if(k==='keys')schedKeys(midi,t,dur);else if(k==='wind')schedWind(midi,t,dur);else schedPluck(midi,t,dur);
 }
 function playDots(dots,seq){
+  setTimeout(function(){if(window.sfSet)sfSet();},300);
   if(!dots||!dots.length)return;
   var a=ac();stopAll();var ms=[],seen={},k=INST.kind;
   dots.forEach(function(d){var m=typeof d==='number'?d:O[d.s]+d.f;if(!seen[m]){seen[m]=1;ms.push(m);}});
