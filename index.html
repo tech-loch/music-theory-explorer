@@ -97,7 +97,7 @@ button:active{transform:scale(0.98);}
   <div id="b_how" style="display:none;margin-top:10px;font-size:14px;line-height:1.6;"></div>
 </div>
 <div id="pT" style="display:none;"></div>
-<div id="pP" style="display:none;"><div id="pQ"></div><div id="pPT"></div></div>
+<div id="pP" style="display:none;"><div id="pQ"></div><div id="pPT"></div><div id="pBK"></div><div id="pRP"></div></div>
 </div>
 <script>
 var keys=[
@@ -1365,7 +1365,7 @@ function drawMarks(){
     if(m){d.className='pkd show '+m.cls;d.textContent=m.txt;}else{d.className='pkd';d.textContent='';}
   }
 }
-function playAt(s,f){try{stopAll();sched(O[s]+f,ac().currentTime+0.01,1.2);}catch(e){}}
+function playAt(s,f){try{if(!(window.bkOn&&window.bkOn()))stopAll();sched(O[s]+f,ac().currentTime+0.01,1.2);}catch(e){}}
 
 function onCell(s,f){
   var q=P.q;if(P.run!=='running'||!q||q.done||cfg.mode!=='find')return;
@@ -1560,6 +1560,136 @@ function rPent(){
   box.innerHTML=h+'</div>';
 }
 
+/* ---------- backing track ---------- */
+var css2=document.createElement('style');
+css2.textContent='.bkb{border:1px solid var(--border);border-radius:8px;padding:8px 4px;text-align:center;font-size:14px;font-weight:500;background:var(--surface-2);}.bkb.on{background:var(--fill-accent);color:var(--on-accent);border-color:var(--fill-accent);}';
+document.head.appendChild(css2);
+var BKC={bpm:90,pat:0,click:false,count:true,pi:{maj:0,min:0}};
+try{var b0=JSON.parse(localStorage.getItem('mte_bk')||'null');if(b0&&typeof b0==='object'){
+  if(typeof b0.bpm==='number')BKC.bpm=Math.max(50,Math.min(160,b0.bpm));
+  if(b0.pat===0||b0.pat===1)BKC.pat=b0.pat;
+  if(typeof b0.click==='boolean')BKC.click=b0.click;
+  if(typeof b0.count==='boolean')BKC.count=b0.count;
+  if(b0.pi){BKC.pi.maj=b0.pi.maj|0;BKC.pi.min=b0.pi.min|0;}
+}}catch(e){}
+function saveBk(){try{localStorage.setItem('mte_bk',JSON.stringify(BKC));}catch(e){}}
+var BK={on:false,timer:null,next:0,beat:0,hi:-1};
+function D(d,q,s7){return {d:d,q:q,s7:s7};}
+var PROGS={
+ maj:[
+  {n:'12-bar blues',tip:'bluesmaj',bars:[D(0,'7'),D(0,'7'),D(0,'7'),D(0,'7'),D(3,'7'),D(3,'7'),D(0,'7'),D(0,'7'),D(4,'7'),D(3,'7'),D(0,'7'),D(4,'7')]},
+  {n:'I V vi IV',tip:'maj',bars:[D(0),D(4),D(5),D(3)]},
+  {n:'I IV V IV',tip:'maj',bars:[D(0),D(3),D(4),D(3)]},
+  {n:'I vi IV V',tip:'maj',bars:[D(0),D(5),D(3),D(4)]},
+  {n:'ii V I (7ths)',tip:'jazz',bars:[D(1,null,true),D(4,null,true),D(0,null,true),D(0,null,true)]}
+ ],
+ min:[
+  {n:'i VI III VII',tip:'min',bars:[D(0),D(5),D(2),D(6)]},
+  {n:'i iv v i',tip:'min',bars:[D(0),D(3),D(4),D(0)]},
+  {n:'Andalusian',tip:'min',bars:[D(0),D(6),D(5),D(4,'maj')]},
+  {n:'Minor blues',tip:'bluesmin',bars:[D(0,'m7'),D(0,'m7'),D(0,'m7'),D(0,'m7'),D(3,'m7'),D(3,'m7'),D(0,'m7'),D(0,'m7'),D(4,'7'),D(3,'m7'),D(0,'m7'),D(4,'7')]}
+ ]
+};
+var IVS={maj:[0,4,7],m:[0,3,7],dim:[0,3,6],'7':[0,4,7,10],m7:[0,3,7,10],maj7:[0,4,7,11],m7b5:[0,3,6,10]};
+var SUF={maj:'',m:'m',dim:'dim','7':'7',m7:'m7',maj7:'maj7',m7b5:'m7b5'};
+function chordOf(st){
+  var q=st.q||(st.s7?S7H[st.d]:QSH[st.d]),pc=SP[st.d];
+  return {pc:pc,q:q,name:pcE(pc)+(SUF[q]||'')};
+}
+function bkMode(){return HOME==='min'?'min':'maj';}
+function curProg(){var l=PROGS[bkMode()],i=Math.min(BKC.pi[bkMode()],l.length-1);return l[i];}
+function bkTip(p){
+  var R=pcE(SP[0]);
+  if(p.tip==='bluesmaj')return 'Try '+R+' minor pentatonic over all 12 bars, then '+R+' major pentatonic over the I chord for a brighter sound.';
+  if(p.tip==='maj')return 'Use '+R+' major pentatonic. It has the same notes as '+minName()+' pentatonic.';
+  if(p.tip==='jazz')return 'Outline each chord: aim for its root or 3rd on beat 1 of every bar.';
+  if(p.tip==='bluesmin')return 'Use '+minName()+' pentatonic over all 12 bars. Add the flat 5th for a bluesy tension note.';
+  return 'Use '+minName()+' pentatonic. Land on the root of each chord at the start of its bar.';
+}
+function bkBeat(t,beat){
+  var spb=60/BKC.bpm,cnt=BKC.count?4:0;
+  if(beat<cnt){metClick(t,beat===0);setTimeout(function(){if(BK.on)bkHi(-1);},Math.max(0,(t-ac().currentTime)*1000));return;}
+  var n=beat-cnt,p=curProg(),bar=Math.floor(n/4)%p.bars.length,b=n%4;
+  if(BKC.click)metClick(t,b===0);
+  var c=chordOf(p.bars[bar]),iv=IVS[c.q]||IVS.maj;
+  var bass=40+((c.pc-4+12)%12),base=55+((c.pc-7+12)%12);
+  var fifth=(c.q==='dim'||c.q==='m7b5')?6:7;
+  if(BKC.pat===0){
+    if(b===0)sched(bass,t,spb*1.8);
+    if(b===2)sched(bass+fifth,t,spb*1.8);
+    if(b===1||b===3)iv.forEach(function(x,i){sched(base+x,t+i*0.012,spb*0.8);});
+  }else if(b===0){
+    sched(bass,t,spb*3.9);
+    iv.forEach(function(x,i){sched(base+x,t+0.02+i*0.015,spb*3.9);});
+  }
+  if(b===0)setTimeout(function(){if(BK.on)bkHi(bar);},Math.max(0,(t-ac().currentTime)*1000));
+  if(CUR.length>80)CUR.splice(0,CUR.length-80);
+}
+function bkHi(bar){
+  BK.hi=bar;
+  var els=document.querySelectorAll('#pBK .bkb');
+  for(var i=0;i<els.length;i++)els[i].classList.toggle('on',i===bar);
+}
+function bkStep(){
+  var a=ac();
+  while(BK.next<a.currentTime+0.15){bkBeat(BK.next,BK.beat);BK.next+=60/BKC.bpm;BK.beat++;}
+}
+function bkStart(){
+  var a=ac();stopAll();
+  BK.on=true;BK.beat=0;BK.hi=-1;BK.next=a.currentTime+0.1;
+  bkStep();BK.timer=setInterval(bkStep,25);rBK();
+}
+function bkStop(){
+  clearInterval(BK.timer);BK.on=false;BK.hi=-1;stopAll();rBK();
+}
+function bkSetBpm(v){
+  BKC.bpm=Math.max(50,Math.min(160,Math.round(v)));saveBk();
+  var e=document.getElementById('bkBpm');if(e)e.firstChild.nodeValue=BKC.bpm+' ';
+  var r=document.getElementById('bkRng');if(r)r.value=BKC.bpm;
+}
+function rBK(){
+  var box=document.getElementById('pBK');if(!box)return;
+  var m=bkMode(),list=PROGS[m],p=curProg();
+  var h=cardOpen('Backing track');
+  h+='<div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">'+homeName()+'. Pick a key on the circle above, then solo over it.</div>';
+  var pb='';list.forEach(function(x,i){pb+=bt('bkprog',x.n,BKC.pi[m]===i,' data-v="'+i+'"');});
+  h+=small('Progression')+rowOf(pb);
+  h+=small('Feel')+rowOf(bt('bkpat','Bass and chords',BKC.pat===0,' data-v="0"')+bt('bkpat','Held chords',BKC.pat===1,' data-v="1"'));
+  h+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">'+bt('bkt','-5',false,' data-v="-5"')+bt('bkt','-1',false,' data-v="-1"')+
+    '<div id="bkBpm" style="flex:1;text-align:center;font-size:22px;font-weight:500;">'+BKC.bpm+' <span style="font-size:13px;color:var(--text-secondary);">BPM</span></div>'+
+    bt('bkt','+1',false,' data-v="1"')+bt('bkt','+5',false,' data-v="5"')+'</div>';
+  h+='<input id="bkRng" type="range" min="50" max="160" value="'+BKC.bpm+'" aria-label="Backing track tempo" style="width:100%;margin-bottom:8px;accent-color:var(--fill-accent);">';
+  h+=rowOf(bt('bkcount','Count-in',BKC.count,'')+bt('bkclick','Click',BKC.click,''));
+  var g='';p.bars.forEach(function(s,i){g+='<div class="bkb'+(BK.on&&BK.hi===i?' on':'')+'">'+chordOf(s).name+'</div>';});
+  h+='<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:6px 0 10px;">'+g+'</div>';
+  h+='<button type="button" data-a="bkgo" style="width:100%;padding:12px;font-size:15px;border-radius:var(--radius);border:1px solid var(--border-accent);'+(BK.on?'background:transparent;color:var(--text-primary);':'background:var(--fill-accent);color:var(--on-accent);')+'">'+(BK.on?'Stop':'Start')+'</button>';
+  h+='<div style="font-size:13px;color:var(--text-secondary);margin-top:10px;">'+bkTip(p)+'</div>';
+  box.innerHTML=h+'</div>';
+}
+
+/* ---------- tempo ramp (drives the Tools metronome) ---------- */
+var RP={need:3,step:5,clean:0,top:0,msg:''};
+try{var r0=JSON.parse(localStorage.getItem('mte_ramp')||'null');if(r0&&typeof r0==='object'){
+  if([2,3,4].indexOf(r0.need)>=0)RP.need=r0.need;
+  if([2,4,5,10].indexOf(r0.step)>=0)RP.step=r0.step;
+}}catch(e){}
+function saveRp(){try{localStorage.setItem('mte_ramp',JSON.stringify({need:RP.need,step:RP.step}));}catch(e){}}
+function wide(s){return s.replace('style="','style="flex:1;padding:10px;');}
+function rRamp(){
+  var box=document.getElementById('pRP');if(!box)return;
+  var h=cardOpen('Tempo ramp');
+  h+='<div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">Play your exercise with the click. Tap Clean after each clean pass. '+RP.need+' in a row raises the tempo by '+RP.step+' BPM. Tap Missed to drop back.</div>';
+  h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'+bt('rdn','-1',false,'')+'<div style="flex:1;text-align:center;font-size:26px;font-weight:500;">'+MET.bpm+' <span style="font-size:13px;color:var(--text-secondary);">BPM</span></div>'+bt('rup','+1',false,'')+'</div>';
+  var d='';for(var i=0;i<RP.need;i++)d+='<div style="width:14px;height:14px;border-radius:50%;background:'+(i<RP.clean?'var(--fill-accent)':'var(--border-strong)')+';"></div>';
+  h+='<div style="display:flex;justify-content:center;gap:8px;margin:6px 0 10px;">'+d+'</div>';
+  h+='<div style="display:flex;gap:8px;margin-bottom:8px;">'+wide(bt('rgo',MET.on?'Stop':'Start',MET.on,''))+wide(bt('rclean','Clean',false,''))+wide(bt('rmiss','Missed',false,''))+'</div>';
+  h+='<div style="font-size:14px;min-height:20px;">'+RP.msg+'</div>';
+  h+='<div style="font-size:12px;color:var(--text-secondary);margin:4px 0 10px;">Best clean tempo this session: '+(RP.top?RP.top+' BPM':'--')+'</div>';
+  h+=small('Clean passes to level up')+rowOf(bt('rneed','2',RP.need===2,' data-v="2"')+bt('rneed','3',RP.need===3,' data-v="3"')+bt('rneed','4',RP.need===4,' data-v="4"'));
+  h+=small('Tempo step (BPM)')+rowOf(bt('rstep','2',RP.step===2,' data-v="2"')+bt('rstep','4',RP.step===4,' data-v="4"')+bt('rstep','5',RP.step===5,' data-v="5"')+bt('rstep','10',RP.step===10,' data-v="10"'));
+  box.innerHTML=h+'</div>';
+}
+
 /* ---------- events ---------- */
 var root=document.getElementById('pP');
 root.addEventListener('click',function(e){
@@ -1584,12 +1714,40 @@ root.addEventListener('click',function(e){
     if(b.getAttribute('data-armed')!=='1'){b.setAttribute('data-armed','1');b.textContent='Tap again to clear all history';b.style.color='#d6453d';setTimeout(function(){if(b.parentNode){b.removeAttribute('data-armed');b.textContent='Clear history';b.style.color='var(--text-secondary)';}},3000);return;}
     delete store[INST.id];saveSt();return rQ();
   }
+  if(a==='bkgo')return BK.on?bkStop():bkStart();
+  if(a==='bkprog'){BKC.pi[bkMode()]=+v;saveBk();return rBK();}
+  if(a==='bkpat'){BKC.pat=+v;saveBk();return rBK();}
+  if(a==='bkcount'){BKC.count=!BKC.count;saveBk();return rBK();}
+  if(a==='bkclick'){BKC.click=!BKC.click;saveBk();return rBK();}
+  if(a==='bkt')return bkSetBpm(BKC.bpm+(+v));
+  if(a==='rgo'){metToggle();return rRamp();}
+  if(a==='rdn'){metSet(MET.bpm-1);return rRamp();}
+  if(a==='rup'){metSet(MET.bpm+1);return rRamp();}
+  if(a==='rneed'){RP.need=+v;RP.clean=Math.min(RP.clean,RP.need-1);saveRp();return rRamp();}
+  if(a==='rstep'){RP.step=+v;saveRp();return rRamp();}
+  if(a==='rclean'){
+    RP.clean++;
+    if(RP.clean>=RP.need){RP.top=Math.max(RP.top,MET.bpm);RP.clean=0;metSet(MET.bpm+RP.step);RP.msg='Level up. Now '+MET.bpm+' BPM.';}
+    else RP.msg='Clean. '+(RP.need-RP.clean)+' more to level up.';
+    return rRamp();
+  }
+  if(a==='rmiss'){RP.clean=0;metSet(MET.bpm-RP.step);RP.msg='Missed. Back to '+MET.bpm+' BPM.';return rRamp();}
   if(a==='ppos'){P.pos=+v;return rPent();}
   if(a==='pnames'){cfg.names=!cfg.names;saveCfg();return rPent();}
-  if(a==='pplay'){var ps=pentPositions();playDots(ps[P.pos].dots,true);return;}
+  if(a==='pplay'){
+    var ps=pentPositions();
+    if(BK.on){
+      var ms=[],seen={};ps[P.pos].dots.forEach(function(d){var m=O[d.s]+d.f;if(!seen[m]){seen[m]=1;ms.push(m);}});
+      ms.sort(function(x,y){return x-y;});
+      var t0=ac().currentTime+0.05;ms.forEach(function(m,i){sched(m,t0+i*0.25,0.4);});
+    }else playDots(ps[P.pos].dots,true);
+    return;
+  }
 });
 
-document.addEventListener('visibilitychange',function(){if(document.hidden&&P.run==='running')pause();});
+root.addEventListener('input',function(e){if(e.target&&e.target.id==='bkRng')bkSetBpm(+e.target.value);});
+document.addEventListener('visibilitychange',function(){if(document.hidden){if(P.run==='running')pause();if(BK.on)bkStop();}});
+window.bkOn=function(){return BK.on;};
 
 /* hooks used by the main script */
 window.pracHide=function(){if(P.run==='running')pause();};
@@ -1602,7 +1760,7 @@ window.pracRefresh=function(){
     P.strs=INST.kind==='guitar'?[0,1]:ss.slice();
     rQ();
   }else if(P.run!=='running'&&P.run!=='paused'){rQ();}
-  rPent();
+  rPent();rBK();rRamp();
 };
 window.pracRefresh();
 })();
