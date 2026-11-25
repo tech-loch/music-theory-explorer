@@ -270,12 +270,27 @@ var V3=[['root','Root position'],['inv1','1st inversion'],['inv2','2nd inversion
 var V4=[['root','Root position'],['inv1','1st inversion'],['inv2','2nd inversion'],['inv3','3rd inversion'],['shell','Shell (1-3-7)'],['bass','Bass note + chord']];
 
 var AC=null,BUFS={},CUR=[];
-function ac(){
+/* acq() makes the audio engine available for decoding only: it never resumes it or takes over the device's audio.
+   ac() is for actually playing: it takes the audio session and resumes. Every call to ac() comes from an explicit play action. */
+var AUSE=0;
+function acq(){
   if(!AC){var C=window.AudioContext||window.webkitAudioContext;AC=new C();AC.onstatechange=function(){if(window.sfSet)sfSet();};}
+  return AC;
+}
+function ac(){
+  AUSE=Date.now();acq();
   try{if(navigator.audioSession)navigator.audioSession.type='playback';}catch(e){}
   if(AC.state!=='running'){try{AC.resume();}catch(e){}}
   return AC;
 }
+/* Give the speakers back a few seconds after the last sound, unless a metronome, backing track or tuner is running. */
+function audioRelease(){
+  if(!AC||Date.now()-AUSE<8000)return;
+  if(MET.on||TU.on||TU.pending||(window.bkOn&&window.bkOn()))return;
+  try{if(AC.state==='running')AC.suspend();}catch(e){}
+  try{if(navigator.audioSession)navigator.audioSession.type='auto';}catch(e){}
+}
+setInterval(audioRelease,2000);
 function pluck(midi){
   if(BUFS[midi])return BUFS[midi];
   var a=ac(),sr=a.sampleRate,f=440*Math.pow(2,(midi-69)/12),L=sr/f-0.5,Li=Math.floor(L),fr=L-Li,len=Math.floor(sr*2.4);
@@ -331,15 +346,11 @@ var SFWIND=['flute','oboe','clarinet','soprano_sax','alto_sax','tenor_sax','bari
 var SFHOSTS=['https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/','https://raw.githubusercontent.com/gleitz/midi-js-soundfonts/gh-pages/FluidR3_GM/'];
 var SFV={},SFST={},SFON=true,SFCOMP=null;
 try{SFON=localStorage.getItem('mte_sf')!=='off';}catch(e){}
-function audioUnlock(){
-  try{var a=ac();if(a.state!=='running')a.resume();var b=a.createBuffer(1,1,22050),s=a.createBufferSource();s.buffer=b;s.connect(a.destination);s.start(0);}catch(e){}
-}
-['touchend','click','keydown'].forEach(function(ev){document.addEventListener(ev,audioUnlock,true);});
 function sfName(){return INST.kind==='wind'?SFWIND[X.wi]:SFMAP[INST.id];}
 function sfSet(){
   var e=$('sfst');if(!e)return;var n=sfName(),st=SFST[n];
   var m=!SFON?'Sound: synth (tap to use real samples)':st==='ready'?'Sound: real samples (tap for synth)':st==='loading'?'Loading real sounds...':st==='fail'?'Sound: synth (samples unavailable, tap to retry)':'Sound: real samples (tap for synth)';
-  e.textContent=m+(AC?' | audio: '+AC.state:'');
+  e.textContent=m+(AC?' | audio: '+(AC.state==='suspended'?'idle':AC.state):'');
 }
 function sfMono(a,buf){
   var n=buf.numberOfChannels;if(n===1)return buf;
@@ -366,7 +377,7 @@ function sfFetch(name){
 function sfLoad(name){
   if(!SFON||!name||SFST[name]==='ready'||SFST[name]==='loading')return;
   SFST[name]='loading';sfSet();
-  var a=ac(),re=/"([A-G][b#]?)(\d)":\s*"data:audio\/mp3;base64,([^"]+)"/g,PCI={C:0,D:2,E:4,F:5,G:7,A:9,B:11};
+  var a=acq(),re=/"([A-G][b#]?)(\d)":\s*"data:audio\/mp3;base64,([^"]+)"/g,PCI={C:0,D:2,E:4,F:5,G:7,A:9,B:11};
   sfFetch(name).then(function(txt){
     var items=[],m;
     while((m=re.exec(txt))){var L=m[1][0],pc=PCI[L]+(m[1][1]==='b'?-1:m[1][1]==='#'?1:0);items.push({midi:12*(parseInt(m[2],10)+1)+pc,b64:m[3]});}
@@ -1212,7 +1223,7 @@ applyInst();buildTools();showTab();renderInst();pick(1);sfSet();sfLoad(sfName())
 /* ================= Practice tab: fretboard quiz (pause, timed rounds) + pentatonic positions ================= */
 (function(){
 var CK='mte_fbcfg',SK='mte_fb';
-var cfg={mode:'find',nat:true,round:0,names:false};
+var cfg={mode:'find',nat:true,round:0,names:false,tap:false};
 var store={};
 try{var c0=JSON.parse(localStorage.getItem(CK)||'null');if(c0&&typeof c0==='object')for(var k0 in c0)cfg[k0]=c0[k0];}catch(e){}
 try{store=JSON.parse(localStorage.getItem(SK)||'{}')||{};}catch(e){store={};}
@@ -1365,7 +1376,7 @@ function drawMarks(){
     if(m){d.className='pkd show '+m.cls;d.textContent=m.txt;}else{d.className='pkd';d.textContent='';}
   }
 }
-function playAt(s,f){try{if(!(window.bkOn&&window.bkOn()))stopAll();sched(O[s]+f,ac().currentTime+0.01,1.2);}catch(e){}}
+function playAt(s,f){if(!cfg.tap)return;try{if(!(window.bkOn&&window.bkOn()))stopAll();sched(O[s]+f,ac().currentTime+0.01,1.2);}catch(e){}}
 
 function onCell(s,f){
   var q=P.q;if(P.run!=='running'||!q||q.done||cfg.mode!=='find')return;
@@ -1458,6 +1469,7 @@ function settingsHTML(){
   ch+=bt('str','All',P.strs.length===ss.length,' data-v="all"');
   h+=small('Strings in the drill')+rowOf(ch);
   h+=small('Notes')+rowOf(bt('nat','Naturals only',cfg.nat,' data-v="1"')+bt('nat','Sharps and flats too',!cfg.nat,' data-v="0"'));
+  h+=small('Sound')+rowOf(bt('tap','Play the note when I tap',cfg.tap,''));
   h+=small('Length')+rowOf(bt('round','Free play',cfg.round===0,' data-v="0"')+bt('round','3 min round',cfg.round===3,' data-v="3"')+bt('round','5 min round',cfg.round===5,' data-v="5"'));
   return h;
 }
@@ -1704,6 +1716,7 @@ root.addEventListener('click',function(e){
   if(a==='mode'){cfg.mode=v;saveCfg();return rQ();}
   if(a==='nat'){cfg.nat=v==='1';saveCfg();return rQ();}
   if(a==='round'){cfg.round=+v;saveCfg();return rQ();}
+  if(a==='tap'){cfg.tap=!cfg.tap;saveCfg();return rQ();}
   if(a==='str'){
     var ss=qStrs();
     if(v==='all')P.strs=ss.slice();
